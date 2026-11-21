@@ -1,0 +1,10 @@
+build/
+*.wav
+.workingdir/
+demos/*
+!demos/live/
+demos/live/*
+!demos/live/HOW-TO-PLAY.md
+compile_flags.txt
+site/tools/
+site/

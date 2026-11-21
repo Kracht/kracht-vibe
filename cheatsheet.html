@@ -1,0 +1,68 @@
+<!-- KRACHT cheat sheet: an HTML fragment the VIBE FM player shows right of the device. It brings its own styles,
+     scoped to .kr-cheat, so it looks right in the player, on the site and opened on its own. Keep it short – it sits
+     beside the device while you play. -->
+<style>
+/* KRACHT cheat sheet – scoped to .kr-cheat, so it looks the same in the VIBE FM player (inside its .cheat panel),
+   on sponde.de/kracht-vibe, and opened on its own. Same sizes as the player's vibe.css, KRACHT's signal as the accent. */
+.kr-cheat { --kr-sig: #FF3D14; --kr-fg: #E9E7E2; --kr-mut: #8C8F96;
+  --kr-mono: var(--mono, 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace);
+  font: 12.5px/1.45 var(--sans, 'Archivo', 'Helvetica Neue', Arial, sans-serif); color: #cfd1d6;
+  max-width: 380px; padding: 14px 16px 16px; border: 1px solid #2C2E33; border-radius: 14px; background: rgba(20, 21, 24, 0.94); }
+.cheat > .kr-cheat { max-width: none; padding: 0; border: 0; border-radius: 0; background: none; font-size: inherit; }
+:root:has(body > .kr-cheat) { background: #0B0C0E; }
+body > .kr-cheat { margin: 24px auto; }
+.kr-cheat h2 { margin: 0 0 2px; font-size: 17px; font-weight: 800; color: var(--kr-fg); }
+.kr-cheat h2 small { font: 400 11px var(--kr-mono); color: var(--kr-mut); margin-left: 6px; }
+.kr-cheat h3 { margin: 14px 0 6px; font: 700 10.5px var(--kr-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--kr-sig); }
+.kr-cheat p { margin: 0 0 6px; }
+.kr-cheat .dim { color: var(--kr-mut); }
+.kr-cheat b { color: var(--kr-fg); }
+.kr-cheat table { width: 100%; border-collapse: collapse; font: inherit; color: inherit; }
+.kr-cheat td { padding: 3px 4px; border-bottom: 1px solid #222428; vertical-align: top; font: inherit; color: inherit; }  /* (opened alone the file is in quirks mode: tables would not inherit) */
+.kr-cheat td:first-child { white-space: nowrap; width: 1%; }
+.kr-cheat .k { display: inline-block; min-width: 46px; padding: 2px 5px; border-radius: 4px; background: #26282d; color: var(--kr-fg);
+  font: 700 10px var(--kr-mono); text-align: center; letter-spacing: 0.04em; }
+.kr-cheat .k.c { background: var(--kr-sig); color: #111214; }
+</style>
+<div class="kr-cheat">
+<h2>KRACHT <small>0.3.1 · hard techno drums</small></h2>
+<p class="dim">Synthesised, not sampled: a kick designer, the techno rumble under it, hats, clap, a 16-step sequencer,
+and the kick ducking whatever you plug into IN 1+2. PLAY starts the default pattern with the EXHALE kick.</p>
+
+<h3>K1–K6 = pages · encoders 1–4 = the four values</h3>
+<table>
+  <tr><td><span class="k c">KICK</span></td><td>TUNE (the body's note, Hz) · FROM (sweep start) · SWEEP (ms down to TUNE) · DECAY</td></tr>
+  <tr><td><span class="k c">PUNCH</span></td><td>CLICK · DRIVE (dB, 4× oversampled) · SHAPE (Soft / Tube / Fold / Hard) · TAIL (the sub under the body)</td></tr>
+  <tr><td><span class="k c">DRUMS</span></td><td>HAT DECAY · HAT TONE · OPEN DECAY · CLAP DECAY</td></tr>
+  <tr><td><span class="k c">SIDE</span></td><td>INPUT (IN 1+2 into the mix) · SIDECHAIN (how deep the kick ducks it) · GLUE (master saturation) · VOLUME</td></tr>
+  <tr><td><span class="k c">RUMBLE</span></td><td>RUMBLE (level) · R TONE (low-pass 70–290 Hz) · R DRIVE · DUCK (how hard the kick pushes the rumble away)</td></tr>
+  <tr><td><span class="k c">SEQ</span></td><td>TEMPO (120–170) · SWING · encoder 4 = LEVEL of the selected lane</td></tr>
+</table>
+
+<h3>F keys</h3>
+<table>
+  <tr><td><span class="k">F1–F4</span></td><td>Lane: <b>KICK · HAT · OPEN · CLAP</b> – the pads edit this lane</td></tr>
+  <tr><td><span class="k">SHIFT</span> + <span class="k">F1–F4</span></td><td><b>Mute</b> / unmute the lane – on the next bar (struck through; blinking while it waits)</td></tr>
+  <tr><td><span class="k">F5</span></td><td><b>PATTERN</b>: the next pattern of the lane's book (four, rolling, gallop, offbeat, push …), switched on the next bar – the key shows <b>&gt; name</b> while it waits. <span class="k">SHIFT</span> + <span class="k">F5</span>: the previous one. Press it several times to skip ahead</td></tr>
+  <tr><td><span class="k">F6</span></td><td><b>PRESET</b>: next kick – EXHALE → KRACHT → PSY → HOUSE → RUMBLE → ZAP → INDUSTRIAL (stopped: you hear it)</td></tr>
+</table>
+
+<h3>Pads · keys · transport</h3>
+<table>
+  <tr><td><span class="k">PADS</span></td><td>The 16 steps of the lane. Tap again and again: <b>hit → accent → ghost → off</b>. Stopped, a tap plays it</td></tr>
+  <tr><td><span class="k">KEYS</span></td><td>Play live: <b>C</b> kick · <b>D E</b> clap · <b>F# G#</b> hat · <b>A#</b> open (every octave, MIDI too)</td></tr>
+  <tr><td><span class="k">PLAY</span></td><td>Sequencer on / off · <b>STOP</b> stops. In a DAW it follows the host's transport and tempo</td></tr>
+  <tr><td><span class="k">A · B</span></td><td>Encoder A = <b>VOLUME</b> · encoder B = <b>DUCK RELEASE</b> (in beats: how long the rumble and the input stay down)</td></tr>
+  <tr><td><span class="k">HOME</span></td><td>What every control does right now · <span class="dim">held 1 s: the firmware library</span></td></tr>
+</table>
+
+<h3>The rumble</h3>
+<p>Every new kick is convolved (FFT) with a dark 2.6 s hall, then saturated, low-passed twice and ducked by the next
+kick – the rolling sub of hard techno, made from <i>your</i> kick. Change the kick, the rumble follows a moment later.</p>
+
+<h3>Sidechain &amp; jacks</h3>
+<table>
+  <tr><td><span class="k">IN 1+2</span></td><td>Rear panel → Audio input. Turn <b>SIDE · INPUT</b> up: pads, synths, a whole mix pump with the kick</td></tr>
+  <tr><td><span class="k">GATE OUT</span></td><td>A 10 ms trigger on every kick – for a modular, an analog drum, a compressor's key</td></tr>
+</table>
+</div>
