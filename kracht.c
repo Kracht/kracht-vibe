@@ -555,17 +555,22 @@ static void throws_frame(float *L, float *R, float bf)
   *L += rl * 0.6f + (o[0] + o[2]) * 0.35f;
   *R += rr * 0.6f + (o[1] + o[3]) * 0.35f;
 }
+/* crush: fewer bits and a lower rate – then a low-pass at the new rate's Nyquist, so the mirror images the rate
+   makes (the high whine) stay out and what is left is grit */
+static svf_t crfL, crfR;
 static void crush_frame(float *L, float *R)
 {
-  if (!fx_on[FX_CRUSH]) { crph = 1.0f; return; }
-  float a = fx_vel[FX_CRUSH], lv = vd_exp2(11.0f - 8.0f * a);
-  crph += 1.0f / (1.0f + a * 15.0f);
+  if (!fx_on[FX_CRUSH]) { crph = 1.0f; crfL.c1 = crfL.c2 = crfR.c1 = crfR.c2 = 0; return; }
+  float a = fx_vel[FX_CRUSH], lv = vd_exp2(10.0f - 5.0f * a), d = 1.0f + a * 9.0f;   /* 10 .. 5 bits, rate / 1 .. 10 */
+  crph += 1.0f / d;
   if (crph >= 1.0f) {
     crph -= 1.0f;
     crL = (float)(int)(*L * lv + (*L >= 0 ? 0.5f : -0.5f)) / lv;
     crR = (float)(int)(*R * lv + (*R >= 0 ? 0.5f : -0.5f)) / lv;
   }
-  *L = crL; *R = crR;
+  float g = tan_pi(vd_clamp(0.45f * SR / d, 1500.0f, 7000.0f)), lo, bp, hi;
+  svf(&crfL, crL, g, 1.2f, &lo, &bp, &hi); *L = lo;
+  svf(&crfR, crR, g, 1.2f, &lo, &bp, &hi); *R = lo;
 }
 
 /* note repeat and the overdub */
