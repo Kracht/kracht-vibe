@@ -119,12 +119,17 @@ clap rolling up, its last two steps in 32nds. Held for a quarter second, it fill
 **Scenes** (SHIFT + K1–K6): a scene keeps the steps (overdubs too), mutes, lane lengths, the preset and the sound –
 kick, rumble, drums, swing, lane levels; not tempo, sidechain, volume or MIDI. SHIFT + K on an empty slot stores,
 on a stored one recalls on the next bar (steps, mutes and lengths to the sample, the sound right after it); held for
-a second it stores over it. While SHIFT is held the line under the FX grid shows the six slots. Scenes live as long
-as the firmware runs.
+a second it stores over it. While SHIFT is held the line under the FX grid shows the six slots. Scenes are kept with
+everything else (below).
 
 **Polymeter** (SHIFT on the SEQ page, encoder 3): the selected lane's length, 1–16 steps. A shorter lane loops
 against the others – hats in 7 against a kick in 16; the steps past the length go dark, the length stands by the
 lane's name. Pattern changes and mutes still land on the bar.
+
+**Kept:** KRACHT writes its state to `state.bin` – every value (MIDI settings included), the preset, the steps with
+your overdubs, book entries, mutes and the six scenes – when the host saves (in the plugin: with the DAW project, per
+instance) and 1.5 s after the last change (the browser: its storage, the device: the microSD). At the start it reads
+it back, so you come back to where you left off.
 
 ## MIDI
 

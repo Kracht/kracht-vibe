@@ -15,6 +15,8 @@
  *           hall throws, crush, no kick) · LEFT: note repeat on the keys · REC: overdub the keys and MIDI into the
  *           steps · SHIFT + a key: the kick tuned to that note · RIGHT: a fill · SHIFT + K1-K6: six scenes ·
  *           quantize for what is played by hand, and a length per lane (polymeter) – SHIFT on the SEQ page
+ *   STATE   everything is kept in state.bin – the values, the steps, mutes, preset and the six scenes: written when the
+ *           host saves (the DAW's project) and 1.5 s after the last change, read at the start
  *   MIDI    notes in (the keys, USB/DIN MIDI, the DAW) by a map – KRACHT, GM, MPC or learned; the sequencer's notes
  *           out to a DAW track or an MPC (sample-exact), and the clock with START / STOP when KRACHT leads
  *
@@ -974,6 +976,7 @@ static void labels(void)
   vibe_label(VB_LEFT, "REPEAT"); vibe_label(VB_REC, "REC"); vibe_label(VB_RIGHT, "FILL");
 }
 
+static void state_load(void);
 void vibe_on_init(float sample_rate)
 {
   SR = sample_rate > SR_MAX ? SR_MAX : sample_rate;
@@ -994,6 +997,7 @@ void vibe_on_init(float sample_rate)
   for (int k = 0; k < K_COUNT; k++) vibe_param_set(k, p[k]);
   for (int l = 0; l < LANES; l++) for (int i = 0; i < BOOK_N[l]; i++) for (int k = 0; k < 16; k++) book_val[l][i][k] = step_val(BOOK[l][i].s[k]);
   for (int l = 0; l < LANES; l++) load_pattern(l, 0);
+  state_load();                                                  /* what was kept, over the defaults */
   /* ready before the first hit: kick and rumble */
   for (int i = 0; i < K_COUNT; i++) kp[i] = P(i);
   kick_len_c[0] = render_kick(kp, SR, kick_buf[0]); kick_len_pub[0] = kick_len_c[0];
@@ -1110,6 +1114,82 @@ static void toggle_mute(int l)
   mute_req[l] = !mute_req[l];
   if (!seq_on()) mute_act[l] = mute_req[l];
 }
+/* ---- the state file: state.bin --------------------------------------------------------------------------------
+   "KRCH", version, the number of values, then per value the hash of its id and the value (so a later version that adds
+   values still reads it), preset, the scene playing, the steps, book entries and mutes, then the six scenes (their
+   values in the order of the table). All little-endian 32-bit words. */
+#define ST_WORDS 4096
+static uint32_t st_buf[ST_WORDS];
+static uint32_t st_saved, st_seen; static uint64_t st_t;     /* the hash written, the hash last seen, when it changed */
+static uint32_t fnv(const char *s) { uint32_t h = 2166136261u; while (*s) { h ^= (uint8_t)*s++; h *= 16777619u; } return h; }
+static uint32_t fbits(float f) { union { float f; uint32_t u; } x; x.f = f; return x.u; }
+static float bitsf(uint32_t u) { union { float f; uint32_t u; } x; x.u = u; return x.f; }
+static int state_pack(void)
+{
+  uint32_t *w = st_buf; int n = 0;
+  w[n++] = 0x4843524Bu; w[n++] = 1; w[n++] = P_COUNT;
+  for (int p = 0; p < P_COUNT; p++) { w[n++] = fnv(PARAMS[p].id); w[n++] = fbits(P(p)); }
+  w[n++] = (uint32_t)preset; w[n++] = (uint32_t)scn_cur;
+  for (int l = 0; l < LANES; l++) { for (int k = 0; k < 16; k++) w[n++] = fbits(pat[l][k]); w[n++] = (uint32_t)book_at[l]; w[n++] = (uint32_t)mute_req[l]; }
+  for (int i = 0; i < SCENES; i++) {
+    scene_t *c = &scenes[i];
+    w[n++] = (uint32_t)c->used; w[n++] = (uint32_t)c->preset;
+    for (int l = 0; l < LANES; l++) { w[n++] = (uint32_t)c->mute[l]; w[n++] = (uint32_t)c->len[l]; w[n++] = (uint32_t)c->book[l];
+      for (int k = 0; k < 16; k++) w[n++] = fbits(c->pat[l][k]); }
+    for (int p = 0; p < P_COUNT; p++) w[n++] = fbits(c->snd[p]);
+  }
+  return n;
+}
+static uint32_t state_hash(int n) { uint32_t h = 2166136261u; for (int i = 0; i < n; i++) { h ^= st_buf[i]; h *= 16777619u; } return h; }
+static void state_save(void)
+{
+  int n = state_pack();
+  if (vibe_store_write("state.bin", st_buf, n * 4) == 0) st_saved = st_seen = state_hash(n);
+}
+static void state_load(void)
+{
+  int bytes = vibe_store_read("state.bin", st_buf, sizeof st_buf), n = bytes / 4, r = 3;
+  if (n < 3 || st_buf[0] != 0x4843524Bu || st_buf[1] != 1) return;
+  int np = (int)st_buf[2];
+  if (np <= 0 || np > VIBE_MAX_PARAMS || n < 3 + 2 * np + 2) return;
+  int map[VIBE_MAX_PARAMS];                                  /* the file's value j is our parameter map[j] (-1: gone) */
+  for (int j = 0; j < np; j++) {
+    uint32_t h = st_buf[r++]; float v = bitsf(st_buf[r++]); map[j] = -1;
+    for (int p = 0; p < P_COUNT; p++) if (fnv(PARAMS[p].id) == h) { map[j] = p; if (v == v) vibe_param_set(p, vd_clamp(v, PARAMS[p].min, PARAMS[p].max)); break; }
+  }
+  int pr = (int)st_buf[r++]; preset = pr >= 0 && pr < NKP ? pr : 0;
+  int sc = (int)st_buf[r++]; scn_cur = sc >= -1 && sc < SCENES ? sc : -1;
+  if (n < r + LANES * 18) return;
+  for (int l = 0; l < LANES; l++) {
+    for (int k = 0; k < 16; k++) { float v = bitsf(st_buf[r++]); pat[l][k] = v >= -1.0f && v <= 1.0f ? v : 0.0f; }
+    int b = (int)st_buf[r++]; book_at[l] = b >= 0 && b < BOOK_N[l] ? b : 0;
+    mute_req[l] = mute_act[l] = st_buf[r++] != 0;
+  }
+  int per = 2 + LANES * 19 + np;
+  for (int i = 0; i < SCENES && n >= r + per; i++) {
+    scene_t *c = &scenes[i];
+    c->used = st_buf[r++] != 0; int cp = (int)st_buf[r++]; c->preset = cp >= 0 && cp < NKP ? cp : 0;
+    for (int l = 0; l < LANES; l++) {
+      c->mute[l] = st_buf[r++] != 0; int ln = (int)st_buf[r++]; c->len[l] = ln >= 1 && ln <= 16 ? ln : 16;
+      int b = (int)st_buf[r++]; c->book[l] = b >= 0 && b < BOOK_N[l] ? b : 0;
+      for (int k = 0; k < 16; k++) { float v = bitsf(st_buf[r++]); c->pat[l][k] = v >= -1.0f && v <= 1.0f ? v : 0.0f; }
+    }
+    for (int p = 0; p < P_COUNT; p++) c->snd[p] = P(p);              /* (a value the file lacks: as now) */
+    for (int j = 0; j < np; j++) { float v = bitsf(st_buf[r++]); if (map[j] >= 0 && v == v) c->snd[map[j]] = v; }
+  }
+  st_saved = st_seen = state_hash(state_pack());
+}
+/* autosave: 1.5 s after the last change (looked at twice a second, from the control flow) */
+static void state_auto(void)
+{
+  static uint64_t last; uint64_t now = vibe_frames();
+  if (now - last < (uint64_t)(SR * 0.5f)) return;
+  last = now;
+  uint32_t h = state_hash(state_pack());
+  if (h != st_seen) { st_seen = h; st_t = now; return; }
+  if (h != st_saved && now - st_t >= (uint64_t)(SR * 1.5f)) state_save();
+}
+
 /* the performance, control side */
 static int fx_pad[16], fx_latch[16];                 /* the pad holds its FX / it stays on after the release */
 static uint64_t fx_tap[16];
@@ -1228,6 +1308,7 @@ void vibe_on_event(const vibe_event *e)
   }
   case VIBE_EV_ENCODER: encoder(e->id, e->value); break;
   case VIBE_EV_PARAM: if (e->id < K_COUNT) kick_changed(); break;
+  case VIBE_EV_SAVE: state_save(); break;                        /* the host keeps the state now */
   default: break;
   }
   live_sync();
@@ -1366,6 +1447,7 @@ void vibe_on_draw(uint16_t *fb)
   (void)fb;
   service();
   live_sync();
+  state_auto();
   if (help) { vg_controls("KRACHT", HELP, sizeof HELP / sizeof HELP[0] / 2); return; }
   char buf[24];
   const vibe_transport_info *tp = vibe_transport();
