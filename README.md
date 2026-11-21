@@ -39,8 +39,8 @@ Both files are in the [latest release](https://github.com/Kracht/kracht-vibe/rel
 - **SIDE** – IN 1+2 mixed in and ducked by the kick: as a plugin on a bass or pad track it pumps with the kick.
   Every kick fires GATE OUT for 10 ms.
 - **PERFORM** – SHIFT + a pad: 16 FX on the drums while you hold it (beat repeat, tape stop, pitch, reverse, filter
-  sweeps, delay and hall throws, crush, no kick). Note repeat on the keys, overdub into the steps, the kick tuned to
-  a key. See [Perform](#perform).
+  sweeps, delay and hall throws, crush, no kick). Note repeat, overdub, quantize, fills, six scenes, a length per
+  lane (polymeter), the kick tuned to a key. See [Perform](#perform).
 - **MIDI** – both ways. A DAW or an MPC plays KRACHT, and KRACHT's sequencer plays a DAW track or an MPC: its notes
   go out sample-exact with the step's velocity, plus the clock and START / STOP while KRACHT leads. See [MIDI](#midi).
 
@@ -62,12 +62,14 @@ grid, meters), pads and four encoders per page, DAW transport, float DSP with ov
 | SHIFT + key | the kick tuned to that note (36–72 Hz) |
 | LEFT | note repeat: tap = on / off, held = only while held |
 | REC / SHIFT + REC | overdub on / off · the lane back to its book entry |
+| RIGHT | fill: tap = the next half bar into a bar, held = while held |
+| SHIFT + K1–K6 | scene: recall on the next bar · empty or held 1 s: store |
 | K1 KICK | tune · from · sweep · decay |
 | K2 PUNCH | click · drive · shape · tail |
 | K3 DRUMS | hat decay · hat tone · open decay · clap decay |
 | K4 SIDE | input · sidechain · glue · volume |
 | K5 RUMBLE | rumble · tone · drive · duck |
-| K6 SEQ | tempo · swing · repeat rate · lane level |
+| K6 SEQ | tempo · swing · repeat rate · lane level · with SHIFT: quantize · strength · lane length |
 | K6 again: MIDI | map · in channel · out channel · out (off / notes / clock / both) |
 | ENTER (on MIDI) | learn: the next note plays the selected lane, in and out |
 | Enc A / B | volume / duck release |
@@ -105,9 +107,28 @@ over MIDI while the sequencer runs lands on the nearest 16th of its lane (note r
 ahead isn't played twice. SHIFT + REC puts the selected lane back to its book entry. **SHIFT + key:** the kick's
 TUNE on that note – F = 43.7 Hz, so the kick sits in the track's key; the rumble follows.
 
+**Quantize** (SHIFT on the SEQ page, encoders 1–2): OFF, 1/16, 1/8 or 1/4, and a STRENGTH of 50–100 %. What you
+play on the keys or over USB/DIN MIDI moves to the nearest point of the grid – the 1/16 grid with the swing. Up to
+30 % of a grid step late it plays at once (and REC writes it to the point just past); earlier, it waits for the next
+point, or part of the way there at a lower strength. Notes from the DAW are on time already and stay as they come.
+Steps edited on the pads need none: a pad is a step.
+
+**Fill** (RIGHT): tapped, it plays the next half bar that leads into a bar – kick X . . x X . x x, hats in 16ths, the
+clap rolling up, its last two steps in 32nds. Held for a quarter second, it fills from the next 16th until you let go.
+
+**Scenes** (SHIFT + K1–K6): a scene keeps the steps (overdubs too), mutes, lane lengths, the preset and the sound –
+kick, rumble, drums, swing, lane levels; not tempo, sidechain, volume or MIDI. SHIFT + K on an empty slot stores,
+on a stored one recalls on the next bar (steps, mutes and lengths to the sample, the sound right after it); held for
+a second it stores over it. While SHIFT is held the line under the FX grid shows the six slots. Scenes live as long
+as the firmware runs.
+
+**Polymeter** (SHIFT on the SEQ page, encoder 3): the selected lane's length, 1–16 steps. A shorter lane loops
+against the others – hats in 7 against a kick in 16; the steps past the length go dark, the length stands by the
+lane's name. Pattern changes and mutes still land on the bar.
+
 ## MIDI
 
-K6 twice (or SHIFT + K6) opens the MIDI page. Encoder 1 picks the map – one table for both directions:
+K6 twice opens the MIDI page. Encoder 1 picks the map – one table for both directions:
 
 | Map | In (notes that play a lane) | Out (kick · hat · open · clap) |
 |---|---|---|

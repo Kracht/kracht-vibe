@@ -13,7 +13,8 @@
  *
  *   PERFORM SHIFT + a pad: 16 FX on the drums while it is held (repeat, tape stop, pitch, reverse, filters, delay and
  *           hall throws, crush, no kick) · LEFT: note repeat on the keys · REC: overdub the keys and MIDI into the
- *           steps · SHIFT + a key: the kick tuned to that note
+ *           steps · SHIFT + a key: the kick tuned to that note · RIGHT: a fill · SHIFT + K1-K6: six scenes ·
+ *           quantize for what is played by hand, and a length per lane (polymeter) – SHIFT on the SEQ page
  *   MIDI    notes in (the keys, USB/DIN MIDI, the DAW) by a map – KRACHT, GM, MPC or learned; the sequencer's notes
  *           out to a DAW track or an MPC (sample-exact), and the clock with START / STOP when KRACHT leads
  *
@@ -34,13 +35,15 @@ VIBE_PARALLEL_AUDIO
 enum { P_RLEVEL = K_COUNT, P_RTONE, P_RDRIVE, P_DUCK, P_RELEASE,
        P_HDEC, P_HTONE, P_ODEC, P_CDEC, P_INGAIN, P_SCDEPTH, P_MDRIVE, P_VOLUME,
        P_TEMPO, P_SWING, P_LV0, P_LV1, P_LV2, P_LV3,
-       P_MMAP, P_MINCH, P_MOUTCH, P_MOUT, P_LN0, P_LN1, P_LN2, P_LN3, P_NRATE, P_COUNT };
+       P_MMAP, P_MINCH, P_MOUTCH, P_MOUT, P_LN0, P_LN1, P_LN2, P_LN3, P_NRATE,
+       P_QUANT, P_QSTR, P_LEN0, P_LEN1, P_LEN2, P_LEN3, P_COUNT };
 static const char *const PRESET_NAMES[NKP] = { "EXHALE", "KRACHT", "PSY", "HOUSE", "RUMBLE", "ZAP", "INDUSTRIAL" };
 static vibe_param PARAMS[P_COUNT];
 static const char *const MAP_NAMES[4] = { "KRACHT", "GM", "MPC", "LEARN" };
 static const char *const IN_CH[17] = { "OMNI", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16" };
 static const char *const NR_NAMES[6] = { "1/4", "1/8", "1/16", "1/32", "1/8T", "1/16T" };
 static const float NR_BEATS[6] = { 1.0f, 0.5f, 0.25f, 0.125f, 1.0f / 3.0f, 1.0f / 6.0f };
+static const char *const Q_NAMES[4] = { "OFF", "1/16", "1/8", "1/4" };
 static const char *const MOUT_NAMES[4] = { "OFF", "NOTES", "CLOCK", "BOTH" };   /* bit 0 notes, bit 1 clock */
 static const vibe_param MORE[P_COUNT - K_COUNT] = {
   { "rumble",   "Rumble",     0, 1, 0.6f,  "", 0, 0 },
@@ -71,6 +74,12 @@ static const vibe_param MORE[P_COUNT - K_COUNT] = {
   { "learn_open", "Learn open", 0, 127, 46, "", 128, 0 },
   { "learn_clap", "Learn clap", 0, 127, 39, "", 128, 0 },
   { "nr_rate",  "Repeat",     0, 5, 2,     "", 6, NR_NAMES },
+  { "quantize", "Quantize",   0, 3, 0,     "", 4, Q_NAMES },
+  { "q_strength", "Q strength", 50, 100, 100, "%", 0, 0 },
+  { "len_kick", "Length",     0, 15, 15,   "", 16, IN_CH + 1 },     /* steps - 1 */
+  { "len_hat",  "Length",     0, 15, 15,   "", 16, IN_CH + 1 },
+  { "len_open", "Length",     0, 15, 15,   "", 16, IN_CH + 1 },
+  { "len_clap", "Length",     0, 15, 15,   "", 16, IN_CH + 1 },
 };
 static const char *GROUPS[P_COUNT];
 static float kp[K_COUNT];                     /* the kick's values as the control flow renders them */
@@ -150,6 +159,13 @@ static volatile float fx_vel[FX_N];
 /* note repeat: the VIBE's keys held per lane, while LEFT is on; REC: hits from the keys and MIDI land in the steps */
 static volatile int32_t nr_on, nr_held[LANES], rec_on;
 static volatile float nr_vel[LANES];
+/* fill (RIGHT): held = a fill while held, tapped = a fill on the next half bar that leads into a bar */
+static volatile int32_t fill_hold, fill_tap, fill_on_pub;
+/* scenes (SHIFT + K1-K6): patterns, mutes and lengths switch on the next bar in the audio flow (control writes the
+   scene's steps in scn_pat, then the request), the sound (preset, kick and drum values) right after, from control */
+#define SCENES 6
+static volatile float scn_pat[LANES][16];
+static volatile int32_t scn_mute[LANES], scn_len[LANES], scn_seq, scn_done;
 
 /* ---- the rumble's hall: an FFT convolution per kick ------------------------------------------------------------ */
 #define FFT_MAX_LOG 19
@@ -307,6 +323,7 @@ static volatile uint32_t start_seq;                    /* control counts up: own
 static volatile uint32_t qw, qr;                       /* live hits: control writes q[] then qw */
 #define QH_OUT 1                                        /* send it as MIDI too (the VIBE's own keys, not MIDI in) */
 #define QH_REC 2                                        /* played by hand: REC writes it into the steps */
+#define QH_Q   4                                        /* played by hand on the VIBE or over MIDI: quantize may move it */
 static struct { int lane, flags; float vel; } q[QN];
 static volatile int32_t step_pub = -1;
 static volatile float duck_pub, rlev_pub, out_pub, in_pub;
@@ -578,14 +595,37 @@ static double pbeat;                           /* a beat that always runs (the s
 static double nr_next[LANES];
 static int nr_was[LANES];
 static int32_t skip_s[LANES] = { -1, -1, -1, -1 };   /* a step the overdub just played by hand: not twice */
+static int a_len[LANES] = { 16, 16, 16, 16 };        /* the lanes' lengths (polymeter): a step is s % length */
+static int scn_hold;                                  /* frames the scene's lengths outrank the parameters */
 static void rec_hit(int l, float vel, double b)
 {
   if (!rec_on || b < 0.0) return;
   int32_t s = (int32_t)(b * 4.0 + 0.5);                             /* the nearest 16th */
   float v = vel >= 0.9f ? 1.0f : vel >= 0.55f ? 0.8f : 0.42f;
-  int k = s & 15;
+  int k = s % a_len[l];
   if (pat[l][k] < v) pat[l][k] = v;
   if (s > a_step) skip_s[l] = s;
+}
+/* quantize: a hit played by hand goes to the nearest point of the grid (1/16 with the swing, 1/8, 1/4) – a little late
+   (up to 30 % of the grid): now, written to the point just past; earlier: it waits for the next point (STRENGTH: part
+   of the way). The waiting hits: */
+static void midi_hit(int l, float vel, int frame);
+#define PN 32
+static struct { int lane, flags; float vel; double at; } pend[PN];
+static int pn;
+static int32_t played_s[LANES] = { -1, -1, -1, -1 };      /* the step the sequencer last played a lane on */
+static double grid_pos(int64_t j, double g, float swing) { double p = (double)j * g; if (g < 0.3 && (j & 1)) p += swing * 0.66 * 0.25; return p; }
+static void quant_hit(int l, float v, int fl, double b, double g, float swing, float str)
+{
+  int64_t j = (int64_t)(b / g); double p0 = grid_pos(j, g, swing);
+  if (p0 > b) { j--; p0 = grid_pos(j, g, swing); }
+  double p1 = grid_pos(j + 1, g, swing);
+  if (b - p0 <= 0.3 * (p1 - p0) || pn >= PN) {                     /* late (or no room): now */
+    hit(l, v); if (fl & QH_OUT) midi_hit(l, v, 0); if (fl & QH_REC) rec_hit(l, v, p0);
+    return;
+  }
+  pend[pn].lane = l; pend[pn].flags = fl; pend[pn].vel = v; pend[pn].at = b + (p1 - b) * str; pn++;
+  if (fl & QH_REC) rec_hit(l, v, p1);
 }
 
 /* ---- MIDI out: the audio flow is the queue's only writer (notes, START / STOP; the SDK adds the clock) ---------- */
@@ -630,12 +670,24 @@ void vibe_on_audio(const float *in, float *out_l, float *out_r, int frames)
   /* live hits */
   uint32_t w = qw;
   VIBE_ACQUIRE();
+  int qz = PI_(P_QUANT);
+  double qg = qz == 1 ? 0.25 : qz == 2 ? 0.5 : 1.0;
+  float qstr = P(P_QSTR) / 100.0f;
+  if (scn_hold > 0) scn_hold -= frames; else for (int l = 0; l < LANES; l++) a_len[l] = PI_(P_LEN0 + l) + 1;
   for (uint32_t k = qr; k != w; k++) {
     int l = q[k % QN].lane, fl = q[k % QN].flags; float v = q[k % QN].vel;
+    if (!running) fl &= ~QH_REC;
+    if (qz && running && beat >= 0.0 && (fl & QH_Q)) { quant_hit(l, v, fl, beat, qg, swing, qstr); continue; }
     hit(l, v);
     if (fl & QH_OUT) midi_hit(l, v, 0);
-    if ((fl & QH_REC) && running) rec_hit(l, v, beat);
+    if (fl & QH_REC) rec_hit(l, v, beat);
   }
+  if (!running && pn) { for (int i = 0; i < pn; i++) hit(pend[i].lane, pend[i].vel); pn = 0; }   /* stopped: what waits plays */
+  /* fill: held a quarter second = a fill until let go; a tap = the next half bar that leads into a bar */
+  static int fh, fill_done, fill_bar = -1, fill_k, fill_cur, fill_pos, fill_half;
+  fh = fill_hold ? fh + frames : 0;
+  int fill_mom = fh > (int)(0.25f * SR);
+  if (fill_tap != fill_done) { fill_done = fill_tap; int32_t a = a_step < 0 ? 0 : a_step; fill_bar = (a & 15) < 8 ? a >> 4 : (a >> 4) + 1; }
   VIBE_RELEASE(); qr = w;
   /* the performance: which ring FX and filter are wanted (the newest held), note repeat */
   float bf = 60.0f / bpm * SR;
@@ -693,16 +745,46 @@ void vibe_on_audio(const float *in, float *out_l, float *out_r, int frames)
             if (sq != q_done[l]) { const float *b = book_val[l][q_idx[l]]; for (int j = 0; j < 16; j++) pat[l][j] = b[j]; q_done[l] = sq; }
             mute_act[l] = mute_req[l];
           }
+          int32_t ss = scn_seq;
+          if (ss != scn_done) {                                   /* a scene: its steps, mutes and lengths, here */
+            for (int l = 0; l < LANES; l++) { for (int j = 0; j < 16; j++) pat[l][j] = scn_pat[l][j]; mute_act[l] = scn_mute[l]; a_len[l] = scn_len[l]; }
+            scn_hold = (int)(0.25f * SR);
+            VIBE_RELEASE(); scn_done = ss;
+          }
         }
-        for (int l = 0; l < LANES; l++) {
+        if (fill_bar >= 0 && (s >> 4) > fill_bar) fill_bar = -1;
+        int was = fill_cur;
+        fill_cur = fill_mom || (fill_bar >= 0 && (s >> 4) == fill_bar && k >= 8);
+        if (fill_cur && !was) fill_k = 0;
+        fill_half = 0;
+        if (fill_cur) {                                          /* the fill: 8 steps, round and round while held */
+          int pos = fill_mom ? (fill_k++ & 7) : (k & 7);
+          float ramp = 0.42f + 0.58f * (float)pos / 7.0f;
+          static const uint8_t FK[8] = { 1, 0, 0, 2, 1, 0, 2, 2 };   /* kick: X . . x X . x x */
+          if (FK[pos]) { float v = FK[pos] == 1 ? 1.0f : 0.8f; hit(L_KICK, v); midi_hit(L_KICK, v, n); }
+          hit(L_CLAP, ramp); midi_hit(L_CLAP, ramp, n);          /* the clap rolls up */
+          hit(L_HAT, 0.8f); midi_hit(L_HAT, 0.8f, n);
+          fill_pos = pos;
+          for (int l = 0; l < LANES; l++) played_s[l] = s;
+        } else for (int l = 0; l < LANES; l++) {
           if (mute_act[l]) continue;
           if (skip_s[l] == s) { skip_s[l] = -1; continue; }      /* played by hand a moment ago (REC) */
-          float v = pat[l][k];
+          float v = pat[l][s % a_len[l]];
           if (v < 0) v = (vd_rand() & 1) ? -v : 0.0f;
-          if (v > 0) { hit(l, v); midi_hit(l, v, n); }
+          if (v > 0) { hit(l, v); midi_hit(l, v, n); played_s[l] = s; }
         }
         step_pub = s;
       }
+    }
+    if (fill_cur && fill_pos >= 6 && !fill_half && running) {   /* the last two: the clap in 32nds */
+      double t16 = beat * 4.0;
+      if (t16 - (double)a_step >= 0.5) { fill_half = 1; float v = 0.42f + 0.58f * (float)fill_pos / 7.0f; hit(L_CLAP, v); midi_hit(L_CLAP, v, n); }
+    }
+    /* quantized hits that were waiting */
+    for (int i = 0; i < pn; i++) if (pbeat >= pend[i].at) {
+      int l = pend[i].lane; int32_t ps = (int32_t)(pend[i].at * 4.0 + 0.5);
+      if (played_s[l] != ps) { hit(l, pend[i].vel); if (pend[i].flags & QH_OUT) midi_hit(l, pend[i].vel, n); }
+      pend[i--] = pend[--pn];
     }
     /* note repeat: the held keys' lanes on the grid */
     for (int l = 0; l < LANES; l++) if (nr_h[l] && pbeat >= nr_next[l]) {
@@ -761,6 +843,7 @@ void vibe_on_audio(const float *in, float *out_l, float *out_r, int frames)
     beat += dbeat; pbeat += dbeat;
   }
   if (!host && run_req) own_beat = beat;
+  fill_on_pub = fill_cur && running;
   kick_busy = kb; rmb_busy = rb;
   duck_pub = duck; rlev_pub = rpk; out_pub = opk; in_pub = ipk;
 }
@@ -776,7 +859,7 @@ static const int MAP[PG_COUNT][4] = {
   { P_RLEVEL, P_RTONE, P_RDRIVE, P_DUCK },
   { P_TEMPO, P_SWING, P_NRATE, -1 },       /* SEQ: 4 = the lane's level */
   { P_MMAP, P_MINCH, P_MOUTCH, P_MOUT } };
-static int page, lane, preset, help, running_c;
+static int page, lane, preset, help, running_c, shift;
 static int learn = -1;                                /* the MIDI page: the lane waiting for its note (ENTER), -1 none */
 static uint64_t mi_t[LANES];                          /* when a lane was last played from outside (the MIDI page's lights) */
 static uint32_t kick_ver = 1, kick_done, rmb_ver;     /* kick values changed / rendered / rumble made for */
@@ -883,11 +966,12 @@ static void labels(void)
 {
   static const char *const F[6] = { "KICK", "HAT", "OPEN", "CLAP", "PATTRN", "PRESET" };
   for (int i = 0; i < 6; i++) vibe_label(VB_F1 + i, F[i]);
-  for (int i = 0; i < 6; i++) { vibe_label(VB_K1 + i, i == 5 ? (page == PG_MIDI ? "MIDI" : "SEQ") : PAGE_NAME[i]);
+  static const char *const SC[6] = { "SCENE 1", "SCENE 2", "SCENE 3", "SCENE 4", "SCENE 5", "SCENE 6" };
+  for (int i = 0; i < 6; i++) { vibe_label(VB_K1 + i, shift ? SC[i] : i == 5 ? (page == PG_MIDI ? "MIDI" : "SEQ") : PAGE_NAME[i]);
     vibe_led_button(VB_K1 + i, 0xFF3D14, i == page || (i == 5 && page == PG_MIDI) ? 1.0f : 0.0f); }
   vibe_label(VB_OCT_DOWN, "< PRST"); vibe_label(VB_OCT_UP, "PRST >");
   vibe_label(VB_ENTER, page == PG_MIDI ? "LEARN" : "");
-  vibe_label(VB_LEFT, "REPEAT"); vibe_label(VB_REC, "REC");
+  vibe_label(VB_LEFT, "REPEAT"); vibe_label(VB_REC, "REC"); vibe_label(VB_RIGHT, "FILL");
 }
 
 void vibe_on_init(float sample_rate)
@@ -900,7 +984,7 @@ void vibe_on_init(float sample_rate)
   for (int i = 0; i < K_COUNT; i++) { PARAMS[i] = KICK_SPECS[i]; GROUPS[i] = i < K_ATK ? "A · BODY" : i < K_CLICK ? "A · AMP" :
     i < K_TAIL ? "A · CLICK" : i < K_DRIVE ? "A · TAIL" : i < K_LOWCUT ? "A · DRIVE" : "A · OUT"; }
   for (int i = K_COUNT; i < P_COUNT; i++) { PARAMS[i] = MORE[i - K_COUNT]; GROUPS[i] = i <= P_RELEASE ? "B · RUMBLE" :
-    i <= P_CDEC ? "B · DRUMS" : i <= P_VOLUME ? "B · SIDE" : i <= P_LV3 ? "B · SEQ" : "C · MIDI"; }
+    i <= P_CDEC ? "B · DRUMS" : i <= P_VOLUME ? "B · SIDE" : i <= P_LV3 ? "B · SEQ" : i <= P_LN3 ? "C · MIDI" : "D · PERFORM"; }
   vibe_notes(VIBE_NOTES | VIBE_NOTES_OWN_OCTAVE);               /* OCT- / OCT+ are the presets' */
   vibe_params(PARAMS, P_COUNT);
   vibe_param_groups(GROUPS);
@@ -931,6 +1015,9 @@ static const char *const HELP[] = {          /* short: the overview cuts each va
   "SHIFT + KEY", "kick tuned to it",
   "LEFT", "note repeat (tap/hold)",
   "REC / SHIFT+REC", "overdub / undo lane",
+  "RIGHT", "fill (tap / hold)",
+  "SHIFT + K1-K6", "scene (hold 1 s: store)",
+  "SHIFT on SEQ", "quantize, lane length",
   "K1-K6", "the six pages",
   "K6 again", "MIDI: map, ch, out",
   "ENTER (MIDI)", "learn lane's note",
@@ -939,7 +1026,11 @@ static const char *const HELP[] = {          /* short: the overview cuts each va
   "PLAY / STOP", "the sequencer",
   "IN 1+2", "ducked by the kick" };
 
-static int sel_param(int slot) { int p = MAP[page][slot]; if (page == PG_SEQ && slot == 3) p = P_LV0 + lane; return p; }
+static int sel_param(int slot)
+{
+  if (page == PG_SEQ && shift) return slot == 0 ? P_QUANT : slot == 1 ? P_QSTR : slot == 2 ? P_LEN0 + lane : -1;   /* SHIFT layer */
+  int p = MAP[page][slot]; if (page == PG_SEQ && slot == 3) p = P_LV0 + lane; return p;
+}
 
 static void encoder(int id, float v)
 {
@@ -959,12 +1050,36 @@ static void encoder(int id, float v)
   if (p < K_COUNT) kick_changed();
 }
 
-static int shift, q_book[LANES] = { -1, -1, -1, -1 };   /* q_book: the entry waiting for the bar, -1 none */
+static int q_book[LANES] = { -1, -1, -1, -1 };   /* q_book: the entry waiting for the bar, -1 none */
+/* scenes: what a scene keeps – the steps, mutes, lengths, the book entries, the preset and the sound's values */
+typedef struct { int used, preset, mute[LANES], len[LANES], book[LANES]; float pat[LANES][16], snd[P_COUNT]; } scene_t;
+static scene_t scenes[SCENES];
+static int scn_cur = -1, scn_wait = -1, scn_key = -1;   /* the scene playing, the one waiting for the bar, a K held */
+static uint64_t scn_t, scn_flash_t; static int scn_flash = -1;
+static int snd_param(int i) { return i < K_COUNT || (i >= P_RLEVEL && i <= P_CDEC) || i == P_SWING || (i >= P_LV0 && i <= P_LV3); }
+static void scene_store(int i)
+{
+  scene_t *c = &scenes[i];
+  c->used = 1; c->preset = preset;
+  for (int l = 0; l < LANES; l++) { c->mute[l] = mute_req[l]; c->len[l] = PI_(P_LEN0 + l) + 1; c->book[l] = book_at[l];
+    for (int k = 0; k < 16; k++) c->pat[l][k] = pat[l][k]; }
+  for (int p = 0; p < P_COUNT; p++) c->snd[p] = P(p);
+  scn_cur = i; scn_flash = i; scn_flash_t = vibe_frames();
+}
+static void scene_sound(int i)                       /* the values, the preset; the kick is made again */
+{
+  scene_t *c = &scenes[i];
+  preset = c->preset;
+  for (int p = 0; p < P_COUNT; p++) if (snd_param(p)) vibe_param_set(p, c->snd[p]);
+  for (int l = 0; l < LANES; l++) { vibe_param_set(P_LEN0 + l, (float)(c->len[l] - 1)); mute_req[l] = c->mute[l]; book_at[l] = c->book[l]; q_book[l] = -1; q_done[l] = q_seq[l]; }
+  kick_changed();
+}
 static int seq_on(void) { const vibe_transport_info *t = vibe_transport(); return running_c || (t->has && t->playing && t->bpm > 0.0f); }
 static int pending(int l) { return q_book[l] >= 0 && q_seq[l] != q_done[l]; }
 static void live_sync(void)                     /* a queued pattern the audio flow has applied becomes the current one */
 {
   int on = seq_on();
+  if (scn_wait >= 0 && scn_done == scn_seq) { scene_sound(scn_wait); scn_cur = scn_wait; scn_wait = -1; }
   for (int l = 0; l < LANES; l++) {
     if (q_book[l] >= 0 && (q_seq[l] == q_done[l] || !on)) { if (!on) load_pattern(l, q_book[l]); book_at[l] = q_book[l]; q_book[l] = -1; q_done[l] = q_seq[l]; }
     if (!on) mute_act[l] = mute_req[l];                          /* stopped: nothing waits for a bar */
@@ -977,6 +1092,19 @@ static void queue_pattern(int l, int i)
   VIBE_RELEASE();
   q_seq[l] = q_seq[l] + 1;
 }
+static void scene_recall(int i)
+{
+  scene_t *c = &scenes[i];
+  for (int l = 0; l < LANES; l++) { scn_mute[l] = c->mute[l]; scn_len[l] = c->len[l]; for (int k = 0; k < 16; k++) scn_pat[l][k] = c->pat[l][k]; }
+  if (!seq_on()) {                                   /* stopped: at once */
+    for (int l = 0; l < LANES; l++) { for (int k = 0; k < 16; k++) pat[l][k] = c->pat[l][k]; mute_act[l] = c->mute[l]; }
+    scene_sound(i); scn_cur = i; scn_wait = -1; scn_done = scn_seq;
+    return;
+  }
+  scn_wait = i;
+  VIBE_RELEASE();
+  scn_seq = scn_seq + 1;
+}
 static void toggle_mute(int l)
 {
   mute_req[l] = !mute_req[l];
@@ -987,7 +1115,7 @@ static int fx_pad[16], fx_latch[16];                 /* the pad holds its FX / i
 static uint64_t fx_tap[16];
 static uint32_t fx_count;
 static int8_t key_held[128];                          /* a key's lane + 1 while it is down (note repeat), 0 none */
-static uint64_t nr_t;
+static uint64_t nr_t, fh_t;
 static void fx_press(int i, float v)
 {
   uint64_t now = vibe_frames();
@@ -1013,7 +1141,20 @@ void vibe_on_event(const vibe_event *e)
   if (fr != VF_NO) { service(); return; }
   switch (e->type) {
   case VIBE_EV_BUTTON:
-    if (e->id == VB_SHIFT) { shift = e->down; break; }
+    if (e->id == VB_SHIFT) { shift = e->down; labels(); break; }
+    if (e->id >= VB_K1 && e->id <= VB_K6 && (e->down ? shift : scn_key == e->id - VB_K1)) {   /* SHIFT + K: a scene */
+      int i = e->id - VB_K1;
+      if (e->down) { scn_key = i; scn_t = vibe_frames(); break; }
+      scn_key = -1;
+      if (!scenes[i].used || vibe_frames() - scn_t >= (uint64_t)SR) scene_store(i);   /* empty or held 1 s: store */
+      else scene_recall(i);
+      break;
+    }
+    if (e->id == VB_RIGHT) {                                      /* fill: held = while held, tapped = the next half bar */
+      if (e->down) { fill_hold = 1; fh_t = vibe_frames(); }
+      else { fill_hold = 0; if (vibe_frames() - fh_t < (uint64_t)(SR * 0.25f)) fill_tap = fill_tap + 1; }
+      break;
+    }
     if (e->id == VB_LEFT) {                                       /* note repeat: a tap switches it, held it is momentary */
       if (e->down) { if (nr_on) { nr_on = 0; nr_t = 0; } else { nr_on = 1; nr_t = vibe_frames(); } }
       else if (nr_t && vibe_frames() - nr_t > (uint64_t)(SR * 0.4f)) { nr_on = 0; nr_t = 0; }
@@ -1025,7 +1166,7 @@ void vibe_on_event(const vibe_event *e)
     if (e->id == VB_RETURN) { if (help) help = 0; else if (learn >= 0) learn = -1; else { page = PG_KICK; labels(); } return; }
     if (e->id >= VB_K1 && e->id <= VB_K6) {
       int pg = e->id - VB_K1;
-      if (pg == PG_SEQ && (page == PG_SEQ || shift)) pg = PG_MIDI;   /* K6 twice (or SHIFT + K6): MIDI */
+      if (pg == PG_SEQ && page == PG_SEQ) pg = PG_MIDI;            /* K6 twice: MIDI */
       if (page != pg) learn = -1;
       page = pg; labels();
     }
@@ -1072,7 +1213,7 @@ void vibe_on_event(const vibe_event *e)
       float ln[LANES]; for (int l = 0; l < LANES; l++) ln[l] = P(P_LN0 + l);
       int l = ext ? in_lane(PI_(P_MMAP), e->id, ln) : key_lane(e->id);
       if (l < 0) break;
-      queue_hit(l, vel, (ext ? 0 : QH_OUT) | QH_REC);
+      queue_hit(l, vel, (ext ? 0 : QH_OUT) | QH_REC | (e->midi[1] == VIBE_NOTE_HOST ? 0 : QH_Q));   /* (the DAW's notes are on time) */
       if (ext) mi_t[l] = vibe_frames();
     }
     break;
@@ -1181,21 +1322,38 @@ static void fx_panel(void)
 {
   static const char *const ROW[4] = { "REPEAT", "PITCH", "FILTER", "THROW" };
   for (int r = 0; r < 4; r++) {
-    int y = 120 + r * 25;
-    vg_text(ROW[r], 22, y + 4, VG_SMALL, C_MUTE, VG_LEFT);
+    int y = 118 + r * 23;
+    vg_text(ROW[r], 22, y + 3, VG_SMALL, C_MUTE, VG_LEFT);
     for (int c = 0; c < 4; c++) {
       int i = r * 4 + c, x = 70 + c * 101, on = fx_on[i];
-      vg_round(x, y, 97, 20, 3, on ? C_SIGNAL : C_RAISED);
-      vg_text(FX_NAME[i], x + 48, y + 4, VG_SMALL, on ? C_BG : C_TEXT, VG_CENTER);
-      if (fx_latch[i]) vg_rect(x + 4, y + 8, 4, 4, on ? C_BG : C_SIGNAL);    /* latched */
+      vg_round(x, y, 97, 19, 3, on ? C_SIGNAL : C_RAISED);
+      vg_text(FX_NAME[i], x + 48, y + 3, VG_SMALL, on ? C_BG : C_TEXT, VG_CENTER);
+      if (fx_latch[i]) vg_rect(x + 4, y + 7, 4, 4, on ? C_BG : C_SIGNAL);    /* latched */
     }
   }
+}
+/* SHIFT held: the scenes on the line under the grid – stored ones lit, the playing one underlined */
+static void scene_line(int blink)
+{
+  vg_text("SCENES", 22, 211, VG_SMALL, C_MUTE, VG_LEFT);
+  for (int i = 0; i < SCENES; i++) {
+    int x = 76 + i * 30, used = scenes[i].used, wait = i == scn_wait;
+    char nb[4] = { (char)('1' + i), 0, 0, 0 };
+    vg_round(x, 210, 24, 12, 2, used ? (wait && blink ? C_HOT : C_SIGNAL) : C_RAISED);
+    vg_text(nb, x + 12, 210, VG_SMALL, used ? C_BG : C_MUTE, VG_CENTER);
+    if (i == scn_cur) vg_rect(x + 2, 224, 20, 2, C_TEXT);
+  }
+  const char *msg = scn_key >= 0 ? (vibe_frames() - scn_t >= (uint64_t)SR || !scenes[scn_key].used ? "let go: STORE" : "hold 1 s: store")
+                  : scn_flash >= 0 && vibe_frames() - scn_flash_t < (uint64_t)SR ? "STORED" : "K1-K6: recall · hold 1 s: store";
+  vg_text(msg, 466, 211, VG_SMALL, scn_key >= 0 || scn_flash >= 0 ? C_SIGNAL : C_MUTE, VG_RIGHT);
 }
 /* what is on: REC, note repeat, the FX – one line under the grid */
 static void perf_line(int blink)
 {
   char b[96], *e = b; int any = 0; b[0] = 0;
   if (rec_on) { e = cat(e, "REC"); any = 1; }
+  if (fill_on_pub) { e = cat(e, any ? "  ·  FILL" : "FILL"); any = 1; }
+  if (scn_wait >= 0) { char nb[4] = { (char)('1' + scn_wait), 0, 0, 0 }; e = cat(e, any ? "  ·  > SCENE " : "> SCENE "); e = cat(e, nb); any = 1; }
   if (nr_on) { e = cat(e, any ? "  ·  NOTE REPEAT " : "NOTE REPEAT "); e = cat(e, NR_NAMES[PI_(P_NRATE) % 6]); any = 1; }
   for (int i = 0; i < FX_N; i++) if (fx_on[i] && e - b < 70) { e = cat(e, any ? "  ·  " : ""); e = cat(e, FX_NAME[i]); any = 1; }
   if (!any) return;
@@ -1259,7 +1417,8 @@ void vibe_on_draw(uint16_t *fb)
   }
 
   /* the steps: raised keys, the signal where they play */
-  int step = running_c || host ? (step_pub & 15) : -1;
+  int32_t sp = running_c || host ? step_pub : -1;
+  int lstep[LANES]; for (int l = 0; l < LANES; l++) lstep[l] = sp >= 0 ? (int)(sp % (PI_(P_LEN0 + l) + 1)) : -1;
   int blink = (int)(vibe_frames() / (uint64_t)(SR * 0.18f)) & 1;
   if (shift) fx_panel();
   else if (page == PG_MIDI) midi_panel(blink);
@@ -1269,19 +1428,23 @@ void vibe_on_draw(uint16_t *fb)
     if (l == lane) vg_rect(14, y + 2, 3, 16, C_SIGNAL);
     vg_text(LANE_NAME[l], 22, y + 2, VG_BOLD, mu ? C_EDGEHI : l == lane ? C_TEXT : C_MUTE, VG_LEFT);
     if ((mu && !wait) || (wait && blink)) vg_rect(20, y + 9, 40, 2, C_SIGNAL);   /* struck through: muted (blinking: on the next bar) */
+    int len = PI_(P_LEN0 + l) + 1, st = lstep[l];
     for (int k = 0; k < 16; k++) {
       float v = pat[l][k]; int maybe = v < 0; if (maybe) v = -v;
       int x = 70 + k * 25 + (k / 4) * 4;
-      vg_round(x, y, 21, 20, 3, k == step ? C_EDGEHI : C_RAISED);
+      if (k >= len) { vg_frame(x, y, 21, 20, 1, C_RAISED); continue; }   /* past the lane's length */
+      vg_round(x, y, 21, 20, 3, k == st ? C_EDGEHI : C_RAISED);
       if (v > 0) {
         uint32_t c = mu ? (v >= 0.6f ? 0x4A1A0C : 0x2E120A) : v >= 0.95f ? C_SIGNAL : v >= 0.6f ? 0xC22E10 : 0x6E2010;
         if (maybe) { vg_frame(x + 3, y + 3, 15, 14, 2, C_SIGNAL); }
         else vg_round(x + 2, y + 2, 17, 16, 2, c);
       }
-      if (k == step) vg_rect(x + 3, y - 3, 15, 2, C_TEXT);
+      if (k == st) vg_rect(x + 3, y - 3, 15, 2, C_TEXT);
     }
+    if (len < 16) { char nb[4]; vg_text(vg_itoa(len, nb), 66, y + 5, VG_SMALL, C_SIGNAL, VG_RIGHT); }   /* the length, by the name */
   }
-  if (page != PG_MIDI || shift) perf_line(blink);
+  if (shift) scene_line(blink);
+  else if (page != PG_MIDI) perf_line(blink);
   cross(6, 228, C_SIGNAL); cross(473, 228, C_SIGNAL);
   vg_rect(0, 228, 480, 1, C_EDGE);
 
@@ -1320,12 +1483,15 @@ void vibe_on_draw(uint16_t *fb)
   /* the pads: the lane's steps in signal, the playhead white */
   for (int k = 0; k < 16; k++) {                               /* (SHIFT: the FX, a row a shade) */
     float v = pat[lane][k]; if (v < 0) v = -v * 0.5f;
-    uint32_t col = k == step ? 0xFFFFFF : C_SIGNAL;
-    float lvl = k == step ? 0.6f : v;
+    int on = k == lstep[lane];
+    if (k > PI_(P_LEN0 + lane)) v = 0;
+    uint32_t col = on ? 0xFFFFFF : C_SIGNAL;
+    float lvl = on ? 0.6f : v;
     if (shift) { col = fx_on[k] ? C_HOT : C_SIGNAL; lvl = fx_on[k] ? 1.0f : (k / 4) & 1 ? 0.22f : 0.1f; }
     uint32_t key = ((uint32_t)(lvl * 200.0f) << 24) ^ col;
     if (pad_shown[k] != key + 1) { vibe_led_pad(k, col, lvl); pad_shown[k] = key + 1; }
   }
+  { static int led_fill = -1; int f = fill_on_pub != 0; if (f != led_fill) { vibe_led_button(VB_RIGHT, 0xFF3D14, f ? 1.0f : 0.0f); led_fill = f; } }
   { static int led_rec = -1, led_nr = -1;
     int r = rec_on ? 1 + blink : 0, nr = nr_on != 0;
     if (r != led_rec) { vibe_led_button(VB_REC, 0xFF3D14, r == 2 ? 1.0f : r ? 0.35f : 0.0f); led_rec = r; }
