@@ -7,13 +7,14 @@ hats and clap on a 16-step sequencer, and the kick ducking whatever you plug int
 synthesised.
 
 **[Listen to the demos](https://sponde.de/kracht-vibe/)** · **[Download the latest release](https://github.com/Kracht/kracht-vibe/releases/latest)** ·
-**[VIBE FM player](https://play.thefirmwarehub.com/)**
+**[Play it in the browser](https://play.thefirmwarehub.com/?fw=kracht-vibe)**
 
 Made for the [VIBE Box Challenge 2026](https://thefirmwarehub.com/lab/) on The Firmware Hub.
 
 ## Play it
 
-- **In the browser:** open the [VIBE FM player](https://play.thefirmwarehub.com/) and drop `kracht.wasm` onto the device.
+- **In the browser:** [open KRACHT in the VIBE FM player](https://play.thefirmwarehub.com/?fw=kracht-vibe) – it loads
+  straight away. Or drop `kracht.wasm` onto the device in the [player](https://play.thefirmwarehub.com/).
 - **In the VIBE FM plugin:** drop `kracht.zip` onto the plugin window. In a DAW KRACHT follows the transport and tempo.
 
 Both files are in the [latest release](https://github.com/Kracht/kracht-vibe/releases/latest).

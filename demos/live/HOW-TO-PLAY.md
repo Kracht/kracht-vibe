@@ -60,3 +60,14 @@ Keys: **F1–F4** lane · **SHIFT + F1–F4** mute · **F5 / SHIFT + F5** next /
 - Bar 7: kick → double end, clap → double end
 
 The synth parts on IN 1 (pad, stabs, acid) are not KRACHT: they stand for whatever you plug in.
+
+## 11 · FX throws · KRACHT · 150 BPM (0.5.0)
+
+SHIFT + pad, each held as written and let go with SHIFT; the pad's velocity 0.8 (tape stop 0.2, soft).
+
+- Before PLAY: F6 ×1 (KRACHT). The default pattern, nothing else changed.
+- Bar 4, beat 4: SHIFT + pad 13 (DELAY) for one beat – the throw rings on into bar 5
+- Bar 6, beat 4: SHIFT + pad 8 (REVERSE) for one beat
+- Bar 8, beats 3–4: SHIFT + pad 3 (REPEAT 1/4)
+- Bar 10, beat 1: SHIFT + pad 5 (TAPE STOP), held – the take ends on the halt
+
