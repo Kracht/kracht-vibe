@@ -56,15 +56,15 @@ grid, meters), pads and four encoders per page, DAW transport, float DSP with ov
 | SHIFT + pad | performance FX while the pad is held · tapped twice: latched, a third tap ends it |
 | F1–F4 | lane KICK · HAT · OPEN · CLAP |
 | SHIFT + F1–F4 | mute / unmute the lane, on the next bar |
-| F5 / SHIFT + F5 | next / previous pattern from the book, on the next bar |
-| F6 / OCT+ | next kick preset |
-| OCT− | previous kick preset |
+| F5 / SHIFT + F5 | next / previous pattern from the book, on the next bar · F5 held 1 s: the lane empty |
+| DATA | kick preset, back and forth (F6 / **+** next, **−** previous) |
 | Keys | C kick · D/E clap · F#/G# hat · A# open (every octave) |
 | SHIFT + key | the kick tuned to that note (36–72 Hz) |
-| LEFT | note repeat: tap = on / off, held = only while held |
+| **−** while K1–K6 are drums (or LEFT from a controller) | note repeat: tap = on / off, held = only while held |
 | REC / SHIFT + REC | overdub on / off · the lane back to its book entry |
-| RIGHT | fill: tap = the next half bar into a bar, held = while held |
+| SHIFT + **−**, or **+** while K1–K6 are drums (or RIGHT from a controller) | fill: tap = the next half bar into a bar, held = while held |
 | SHIFT + K1–K6 | scene: recall on the next bar · empty or held 1 s: store |
+| SHIFT + RETURN | K1–K6 become drum keys: KICK · HAT · OPEN · CLAP · kick accent · ghost hat – again: the pages |
 | K1 KICK | tune · from · sweep · decay |
 | K2 PUNCH | click · drive · shape · tail |
 | K3 DRUMS | hat decay · hat tone · open decay · clap decay |
@@ -72,12 +72,32 @@ grid, meters), pads and four encoders per page, DAW transport, float DSP with ov
 | K5 RUMBLE | rumble · tone · drive · duck |
 | K6 SEQ | tempo · swing · repeat rate · lane level · with SHIFT: quantize · strength · lane length |
 | K6 again: MIDI | map · in channel · out channel · out (off / notes / clock / both) |
-| ENTER (on MIDI) | learn: the next note plays the selected lane, in and out |
+| DATA pressed (on MIDI) | learn: the next note plays the selected lane, in and out |
+| K6 a third time: TRACKS | the steps on the encoders, see [Without pads](#without-pads) |
+| SHIFT + Enc A / B | pick an FX / its amount · SHIFT + **+** held plays it |
+| DATA held 0.6 s | FOCUS: DATA walks every value on the display |
 | Enc A / B | volume / duck release |
 | PLAY / STOP | sequencer |
 
 `cheatsheet.html` has the same as a one-page sheet beside the device in the player. The [demos](https://sponde.de/kracht-vibe/) were all
 played by hand on the firmware – the moves are in [`demos/live/HOW-TO-PLAY.md`](demos/live/HOW-TO-PLAY.md).
+
+## Without pads
+
+On a box without pads and keys (the VIBE Box, the player's *Rack* view) everything stays playable but SHIFT + key (the kick's tune: KICK · encoder 1):
+
+- **TRACKS** (K6: SEQ, MIDI, TRACKS – and K6 comes back to TRACKS when you left it there): **A** = the step,
+  **B** = the selected lane's value (off, ghost, hit, accent), **encoders 1–4** = KICK · HAT · OPEN · CLAP on that step,
+  the whole column at once. **DATA pressed** = the step on / off. F1–F4 choose the lane as always. Volume is
+  on SIDE · encoder 4 meanwhile.
+- **FX**, on every page: hold SHIFT, **A** picks one of the 16, **B** its amount, **+** held plays it – pressed twice
+  quickly it stays on, once more ends it. **SHIFT + −** is the fill. **−** and **+** are the two keys left of REC (`VB_OCT_DOWN` /
+  `VB_OCT_UP`, on older panels OCT− / OCT+); LEFT, RIGHT and ENTER come from a controller only.
+- **Drum keys**: SHIFT + RETURN turns K1–K6 into KICK · HAT · OPEN · CLAP · kick accent · ghost hat (an orange line along
+  the top, the names in the header); SHIFT + RETURN again gives the pages back. They play as the VIBE's keys do: REC
+  overdubs them, **−** is the note repeat and **+** the fill meanwhile, quantize and MIDI out included. SHIFT + K1–K6 stay the scenes.
+- **DATA** = the kick preset. SHIFT + DATA is the SDK's, in every firmware: the soft keys F1–F6.
+- Notes come over MIDI or from the DAW too ([MIDI](#midi)).
 
 ## Perform
 
@@ -102,7 +122,7 @@ the amount.
   rate. NO KICK takes the kick and its rumble out.
 - While SHIFT is held the display shows the grid; what is on stays listed under the steps.
 
-**Note repeat:** LEFT, then hold keys: their lanes repeat on the grid at the rate on SEQ · encoder 3 (1/4 … 1/32,
+**Note repeat:** **−** while K1–K6 are drums (or LEFT from a controller), then hold keys: their lanes repeat on the grid at the rate on SEQ · encoder 3 (1/4 … 1/32,
 1/8T, 1/16T), with the key's velocity. Stopped, the grid starts with the press. **REC:** what you play on the keys or
 over MIDI while the sequencer runs lands on the nearest 16th of its lane (note repeats too); a step it lands on just
 ahead isn't played twice. SHIFT + REC puts the selected lane back to its book entry. **SHIFT + key:** the kick's
@@ -114,7 +134,7 @@ play on the keys or over USB/DIN MIDI moves to the nearest point of the grid –
 point, or part of the way there at a lower strength. Notes from the DAW are on time already and stay as they come.
 Steps edited on the pads need none: a pad is a step.
 
-**Fill** (RIGHT): tapped, it plays the next half bar that leads into a bar – kick X . . x X . x x, hats in 16ths, the
+**Fill** (SHIFT + **−**, or RIGHT from a controller): tapped, it plays the next half bar that leads into a bar – kick X . . x X . x x, hats in 16ths, the
 clap rolling up, its last two steps in 32nds. Held for a quarter second, it fills from the next 16th until you let go.
 
 **Scenes** (SHIFT + K1–K6): a scene keeps the steps (overdubs too), mutes, lane lengths, the preset and the sound –
@@ -141,7 +161,7 @@ K6 twice opens the MIDI page. Encoder 1 picks the map – one table for both dir
 | KRACHT | by pitch class, any octave: C kick, D/D#/E clap, F#/G# hat, A# open | 36 · 42 · 46 · 38 |
 | GM | 35/36 kick, 37–40 clap, 42/44 hat, 46 open | 36 · 42 · 46 · 39 |
 | MPC | pads A01–A04 in the chromatic layout: 36 kick, 37 clap, 38 hat, 39 open | 36 · 38 · 39 · 37 |
-| LEARN | one note a lane: ENTER, then play a note (RETURN cancels) | the learned notes |
+| LEARN | one note a lane: DATA pressed, then play a note (RETURN cancels) | the learned notes |
 
 - **In:** encoder 2 = channel (OMNI or 1–16). The VIBE's own keys always play by pitch class.
   Program Change 0–6 = kick preset · CC 20–23 = mute kick / hat / open / clap (value ≥ 64), CC 24–27 = the lane's
